@@ -1,11 +1,12 @@
 package pl.jakubtworek;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class FootballScoreBoard {
-    private final List<Match> matches = new LinkedList<>();
+    private final Map<String, Match> matches = new ConcurrentHashMap<>();
 
-    public void startGame(String homeTeam, String awayTeam) {
+    public String startGame(String homeTeam, String awayTeam) {
         requireNonEmpty(homeTeam, "homeTeam");
         requireNonEmpty(awayTeam, "awayTeam");
         validateTeamName(homeTeam, "homeTeam");
@@ -15,38 +16,59 @@ public class FootballScoreBoard {
             throw new IllegalArgumentException("Team cannot play against itself: " + homeTeam);
         }
 
-        if (getMatch(homeTeam, awayTeam).isPresent()) {
+        boolean duplicateExists = matches.values().stream()
+                .anyMatch(m -> m.getHomeTeam().equalsIgnoreCase(homeTeam) && m.getAwayTeam().equalsIgnoreCase(awayTeam));
+        if (duplicateExists) {
             throw new IllegalArgumentException("Match already exists: " + homeTeam + " vs " + awayTeam);
         }
 
-        matches.add(new Match(homeTeam, awayTeam));
+        String uuid = UUID.randomUUID().toString();
+        Match match = new Match(uuid, homeTeam, awayTeam);
+        matches.put(uuid, match);
+        return uuid;
     }
 
-    public void updateScore(String homeTeam, String awayTeam, int homeScore, int awayScore) {
-        final Match match = getMatch(homeTeam, awayTeam)
-                .orElseThrow(() -> new NoSuchElementException("Match not found: " + homeTeam + " vs " + awayTeam));
-        match.setScore(homeScore, awayScore);
+    public void updateScore(String uuid, int homeScore, int awayScore) {
+        Match current = matches.get(uuid);
+        if (current == null) throw new IllegalArgumentException("Match not found");
+
+        if (homeScore < 0 || awayScore < 0) {
+            throw new IllegalArgumentException("Score cannot be negative");
+        }
+
+        if (current.getHomeScore() == homeScore && current.getAwayScore() == awayScore) {
+            return;
+        }
+
+        Match updated = new Match(
+                current.getUuid(),
+                current.getHomeTeam(),
+                current.getAwayTeam(),
+                homeScore,
+                awayScore,
+                current.getAddedAt()
+        );
+
+        boolean replaced = matches.replace(uuid, current, updated);
+        if (!replaced) {
+            throw new OptimisticLockException("Match was modified concurrently. Please retry.");
+        }
     }
 
-    public void finishGame(String homeTeam, String awayTeam) {
-        final Match match = getMatch(homeTeam, awayTeam)
-                .orElseThrow(() -> new NoSuchElementException("Match not found: " + homeTeam + " vs " + awayTeam));
-        matches.remove(match);
+    public void finishGame(String uuid) {
+        if (matches.remove(uuid) == null) {
+            throw new IllegalArgumentException("Match not found: " + uuid);
+        }
     }
 
-    public List<Match> getSummary() {
-        return matches.stream()
+    public List<MatchRecord> getSummary() {
+        final List<Match> snapshot = new ArrayList<>(matches.values());
+        return snapshot.stream()
                 .sorted(Comparator
                         .comparingInt(Match::getTotalScore)
                         .thenComparing(Match::getAddedAt).reversed())
-                .map(Match::copy)
+                .map(Match::toRecord)
                 .toList();
-    }
-
-    private Optional<Match> getMatch(String homeTeam, String awayTeam) {
-        return matches.stream()
-                .filter(m -> m.getHomeTeam().equalsIgnoreCase(homeTeam) && m.getAwayTeam().equalsIgnoreCase(awayTeam))
-                .findFirst();
     }
 
     private void requireNonEmpty(String value, String field) {

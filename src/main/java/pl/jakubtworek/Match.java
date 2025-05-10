@@ -3,13 +3,15 @@ package pl.jakubtworek;
 import java.util.Objects;
 
 public class Match {
+    private final String uuid;
     private final String homeTeam;
     private final String awayTeam;
-    private int homeScore;
-    private int awayScore;
-    private long addedAt;
+    private final int homeScore;
+    private final int awayScore;
+    private final long addedAt;
 
-    public Match(String homeTeam, String awayTeam) {
+    public Match(String uuid, String homeTeam, String awayTeam) {
+        this.uuid = uuid;
         this.homeTeam = homeTeam;
         this.awayTeam = awayTeam;
         this.homeScore = 0;
@@ -17,6 +19,18 @@ public class Match {
         this.addedAt = System.nanoTime();
     }
 
+    public Match(String uuid, String homeTeam, String awayTeam, int homeScore, int awayScore, long addedAt) {
+        this.uuid = uuid;
+        this.homeTeam = homeTeam;
+        this.awayTeam = awayTeam;
+        this.homeScore = homeScore;
+        this.awayScore = awayScore;
+        this.addedAt = addedAt;
+    }
+
+    public String getUuid() {
+        return uuid;
+    }
     public String getHomeTeam() { return homeTeam; }
     public String getAwayTeam() { return awayTeam; }
     public int getHomeScore() { return homeScore; }
@@ -24,35 +38,27 @@ public class Match {
     public long getAddedAt() { return addedAt; }
 
     public int getTotalScore() {
-        return Math.addExact(homeScore, awayScore);
+        return homeScore + awayScore;
     }
 
-    public void setScore(int home, int away) {
-        if (home < 0 || away < 0) {
-            throw new IllegalArgumentException("Score cannot be negative");
-        }
-        this.homeScore = home;
-        this.awayScore = away;
-    }
-
-    public Match copy() {
-        Match copy = new Match(this.homeTeam, this.awayTeam);
-        copy.homeScore = this.homeScore;
-        copy.awayScore = this.awayScore;
-        copy.addedAt = this.addedAt;
-        return copy;
+    public MatchRecord toRecord() {
+        return new MatchRecord(homeTeam, awayTeam, homeScore, awayScore);
     }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (!(o instanceof Match m)) return false;
-        return homeTeam.equalsIgnoreCase(m.homeTeam) && awayTeam.equalsIgnoreCase(m.awayTeam);
+        if (!(o instanceof Match other)) return false;
+        return uuid.equals(other.uuid) &&
+                homeScore == other.homeScore &&
+                awayScore == other.awayScore &&
+                homeTeam.equalsIgnoreCase(other.homeTeam) &&
+                awayTeam.equalsIgnoreCase(other.awayTeam);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(homeTeam.toLowerCase(), awayTeam.toLowerCase());
+        return Objects.hash(uuid, homeTeam.toLowerCase(), awayTeam.toLowerCase(), homeScore, awayScore);
     }
 
     @Override

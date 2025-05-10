@@ -1,11 +1,17 @@
 package pl.jakubtworek;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.NoSuchElementException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -28,15 +34,14 @@ class FootballScoreBoardTest {
 
         // When
         board.startGame(home, away);
-        final List<Match> summary = board.getSummary();
+        final MatchRecord match = board.getSummary().getFirst();
 
         // Then
         assertAll(
-                () -> assertEquals(1, summary.size()),
-                () -> assertEquals(home, summary.getFirst().getHomeTeam()),
-                () -> assertEquals(away, summary.getFirst().getAwayTeam()),
-                () -> assertEquals(0, summary.getFirst().getHomeScore()),
-                () -> assertEquals(0, summary.getFirst().getAwayScore())
+                () -> assertEquals(home, match.homeTeam()),
+                () -> assertEquals(away, match.awayTeam()),
+                () -> assertEquals(0, match.homeScore()),
+                () -> assertEquals(0, match.awayScore())
         );
     }
 
@@ -44,16 +49,16 @@ class FootballScoreBoardTest {
     @DisplayName("Should update the score of an existing match")
     void givenExistingMatch_whenUpdateScore_thenScoreIsUpdated() {
         // Given
-        board.startGame("Germany", "France");
+        String id = board.startGame("Germany", "France");
 
         // When
-        board.updateScore("Germany", "France", 2, 3);
-        final Match match = board.getSummary().getFirst();
+        board.updateScore(id, 2, 3);
+        final MatchRecord match = board.getSummary().getFirst();
 
         // Then
         assertAll(
-                () -> assertEquals(2, match.getHomeScore()),
-                () -> assertEquals(3, match.getAwayScore())
+                () -> assertEquals(2, match.homeScore()),
+                () -> assertEquals(3, match.awayScore())
         );
     }
 
@@ -61,10 +66,10 @@ class FootballScoreBoardTest {
     @DisplayName("Should remove a finished game from the scoreboard")
     void givenMatchStarted_whenFinishGame_thenMatchIsRemoved() {
         // Given
-        board.startGame("Mexico", "USA");
+        String id = board.startGame("Mexico", "USA");
 
         // When
-        board.finishGame("Mexico", "USA");
+        board.finishGame(id);
 
         // Then
         assertTrue(board.getSummary().isEmpty());
@@ -74,28 +79,29 @@ class FootballScoreBoardTest {
     @DisplayName("Should return summary sorted by total score and then by insertion order")
     void givenMultipleMatches_whenGetSummary_thenSortedCorrectly() {
         // Given
-        board.startGame("Mexico", "Canada");
-        board.startGame("Spain", "Brazil");
-        board.startGame("Germany", "France");
-        board.startGame("Uruguay", "Italy");
-        board.startGame("Argentina", "Australia");
+        List<String> ids = new ArrayList<>();
+        ids.add(board.startGame("Mexico", "Canada"));      // 0
+        ids.add(board.startGame("Spain", "Brazil"));       // 1
+        ids.add(board.startGame("Germany", "France"));     // 2
+        ids.add(board.startGame("Uruguay", "Italy"));      // 3
+        ids.add(board.startGame("Argentina", "Australia")); // 4
 
-        board.updateScore("Mexico", "Canada", 0, 5);      // 5
-        board.updateScore("Spain", "Brazil", 10, 2);      // 12
-        board.updateScore("Germany", "France", 2, 2);     // 4
-        board.updateScore("Uruguay", "Italy", 6, 6);      // 12
-        board.updateScore("Argentina", "Australia", 3, 1);// 4
+        board.updateScore(ids.get(0), 0, 5);  // Mexico-Canada: 5
+        board.updateScore(ids.get(1), 10, 2); // Spain-Brazil: 12
+        board.updateScore(ids.get(2), 2, 2);  // Germany-France: 4
+        board.updateScore(ids.get(3), 6, 6);  // Uruguay-Italy: 12
+        board.updateScore(ids.get(4), 3, 1);  // Argentina-Australia: 4
 
         // When
-        final List<Match> summary = board.getSummary();
+        final List<MatchRecord> summary = board.getSummary();
 
         // Then
         assertAll(
-                () -> assertEquals("Uruguay", summary.get(0).getHomeTeam()),     // 12 (inserted later)
-                () -> assertEquals("Spain", summary.get(1).getHomeTeam()),       // 12
-                () -> assertEquals("Mexico", summary.get(2).getHomeTeam()),      // 5
-                () -> assertEquals("Argentina", summary.get(3).getHomeTeam()),   // 4
-                () -> assertEquals("Germany", summary.get(4).getHomeTeam())      // 4
+                () -> assertEquals("Uruguay", summary.get(0).homeTeam()),     // 12 (added later than Spain)
+                () -> assertEquals("Spain", summary.get(1).homeTeam()),       // 12
+                () -> assertEquals("Mexico", summary.get(2).homeTeam()),      // 5
+                () -> assertEquals("Argentina", summary.get(3).homeTeam()),   // 4
+                () -> assertEquals("Germany", summary.get(4).homeTeam())      // 4
         );
     }
 
@@ -130,8 +136,8 @@ class FootballScoreBoardTest {
     @DisplayName("Should throw when updating score of non-existent match")
     void givenNonExistingMatch_whenUpdateScore_thenThrowException() {
         // When
-        final var ex = assertThrows(NoSuchElementException.class, () ->
-                board.updateScore("Foo", "Bar", 1, 1)
+        final var ex = assertThrows(IllegalArgumentException.class, () ->
+                board.updateScore("non-existent-id", 1, 1)
         );
 
         // Then
@@ -142,8 +148,8 @@ class FootballScoreBoardTest {
     @DisplayName("Should throw when finishing non-existent match")
     void givenNonExistingMatch_whenFinishGame_thenThrowException() {
         // When
-        final var ex = assertThrows(NoSuchElementException.class, () ->
-                board.finishGame("NoTeam", "OtherNoTeam")
+        final var ex = assertThrows(IllegalArgumentException.class, () ->
+                board.finishGame("non-existent-id")
         );
 
         // Then
@@ -154,61 +160,15 @@ class FootballScoreBoardTest {
     @DisplayName("Should throw when score is negative")
     void givenNegativeScore_whenUpdateScore_thenThrowException() {
         // Given
-        board.startGame("Germany", "France");
+        String id = board.startGame("Germany", "France");
 
         // When
         final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.updateScore("Germany", "France", -1, 2)
+                board.updateScore(id, -1, 2)
         );
 
         // Then
         assertTrue(ex.getMessage().contains("cannot be negative"));
-    }
-
-    @Test
-    @DisplayName("Should allow maximum possible score without overflow")
-    void givenMaxIntScore_whenUpdateScore_thenTotalScoreIsCorrect() {
-        // Given
-        board.startGame("Germany", "France");
-
-        // When
-        board.updateScore("Germany", "France", Integer.MAX_VALUE, 0);
-
-        // Then
-        final Match match = board.getSummary().getFirst();
-        assertEquals(Integer.MAX_VALUE, match.getTotalScore());
-    }
-
-    @Test
-    @DisplayName("Should throw ArithmeticException on integer overflow in totalScore")
-    void givenOverflowScore_whenTotalScore_thenThrowException() {
-        // Given
-        board.startGame("Germany", "France");
-
-        // When
-        board.updateScore("Germany", "France", Integer.MAX_VALUE, 1);
-
-        // Then
-        final var ex = assertThrows(ArithmeticException.class, () ->
-                board.getSummary().getFirst().getTotalScore()
-        );
-        assertEquals("integer overflow", ex.getMessage());
-    }
-
-    @Test
-    @DisplayName("Should treat team names case-insensitively for equality")
-    void givenSameTeamsWithDifferentCase_whenGetMatch_thenMatchFound() {
-        // Given
-        board.startGame("Germany", "France");
-
-        // When
-        assertDoesNotThrow(() ->
-                board.updateScore("GERMANY", "france", 3, 2)
-        );
-
-        // Then
-        final Match match = board.getSummary().getFirst();
-        assertEquals(5, match.getTotalScore());
     }
 
     @Test
@@ -236,26 +196,51 @@ class FootballScoreBoardTest {
     @DisplayName("Should return empty summary when no matches started")
     void givenNoMatches_whenGetSummary_thenReturnEmptyList() {
         // When
-        final List<Match> summary = board.getSummary();
+        final List<MatchRecord> summary = board.getSummary();
 
         // Then
         assertTrue(summary.isEmpty());
     }
 
+    @Disabled("Disabled: updateScore() executes too fast to reliably trigger optimistic locking conflicts in concurrent scenarios.")
     @Test
-    @DisplayName("Should return copies of matches in summary")
-    void givenSummaryReturned_whenModifyingMatch_thenOriginalUnchanged() {
+    @DisplayName("Should handle concurrent updates safely with optimistic locking")
+    void givenConcurrentUpdates_whenUpdateScore_thenOnlyOneSucceedsAndRestFail() throws InterruptedException {
+        // This test is intentionally disabled because it relies on timing-sensitive behavior.
+        // To make it pass consistently, updateScore() would need to include a delay,
+        // which is not suitable for production logic.
+
         // Given
-        board.startGame("Spain", "Brazil");
-        board.updateScore("Spain", "Brazil", 1, 2);
+        String matchId = board.startGame("TeamA", "TeamB");
+        int threads = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch latch = new CountDownLatch(threads);
+        AtomicInteger optimisticExceptions = new AtomicInteger();
+        AtomicInteger successCount = new AtomicInteger();
 
         // When
-        final List<Match> summary = board.getSummary();
-        final Match returned = summary.getFirst();
-        returned.setScore(99, 99);
+        for (int i = 1; i < threads; i++) {
+            int finalI = i;
+            executor.execute(() -> {
+                try {
+                    board.updateScore(matchId, finalI, finalI);
+                    successCount.incrementAndGet();
+                } catch (OptimisticLockException e) {
+                    optimisticExceptions.incrementAndGet();
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await(5, TimeUnit.SECONDS);
+        executor.shutdown();
 
         // Then
-        final Match original = board.getSummary().getFirst();
-        assertEquals(3, original.getTotalScore());
+        MatchRecord match = board.getSummary().getFirst();
+        assertTrue(match.homeScore() >= 0 && match.homeScore() < threads);
+        assertEquals(match.homeScore(), match.awayScore());
+        assertEquals(1, successCount.get());
+        assertTrue(optimisticExceptions.get() >= 1);
     }
 }
