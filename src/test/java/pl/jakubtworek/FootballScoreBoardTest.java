@@ -49,10 +49,10 @@ class FootballScoreBoardTest {
     @DisplayName("Should update the score of an existing match")
     void givenExistingMatch_whenUpdateScore_thenScoreIsUpdated() {
         // Given
-        String id = board.startGame("Germany", "France");
+        board.startGame("Germany", "France");
 
         // When
-        board.updateScore(id, 2, 3);
+        board.updateScore("Germany", "France", 2, 3);
         final MatchRecord match = board.getSummary().getFirst();
 
         // Then
@@ -66,10 +66,10 @@ class FootballScoreBoardTest {
     @DisplayName("Should remove a finished game from the scoreboard")
     void givenMatchStarted_whenFinishGame_thenMatchIsRemoved() {
         // Given
-        String id = board.startGame("Mexico", "USA");
+        board.startGame("Mexico", "USA");
 
         // When
-        board.finishGame(id);
+        board.finishGame("Mexico", "USA");
 
         // Then
         assertTrue(board.getSummary().isEmpty());
@@ -79,18 +79,17 @@ class FootballScoreBoardTest {
     @DisplayName("Should return summary sorted by total score and then by insertion order")
     void givenMultipleMatches_whenGetSummary_thenSortedCorrectly() {
         // Given
-        List<String> ids = new ArrayList<>();
-        ids.add(board.startGame("Mexico", "Canada"));      // 0
-        ids.add(board.startGame("Spain", "Brazil"));       // 1
-        ids.add(board.startGame("Germany", "France"));     // 2
-        ids.add(board.startGame("Uruguay", "Italy"));      // 3
-        ids.add(board.startGame("Argentina", "Australia")); // 4
+        board.startGame("Mexico", "Canada");      // 0
+        board.startGame("Spain", "Brazil");       // 1
+        board.startGame("Germany", "France");     // 2
+        board.startGame("Uruguay", "Italy");      // 3
+        board.startGame("Argentina", "Australia"); // 4
 
-        board.updateScore(ids.get(0), 0, 5);  // Mexico-Canada: 5
-        board.updateScore(ids.get(1), 10, 2); // Spain-Brazil: 12
-        board.updateScore(ids.get(2), 2, 2);  // Germany-France: 4
-        board.updateScore(ids.get(3), 6, 6);  // Uruguay-Italy: 12
-        board.updateScore(ids.get(4), 3, 1);  // Argentina-Australia: 4
+        board.updateScore("Mexico", "Canada", 0, 5);  // Mexico-Canada: 5
+        board.updateScore("Spain", "Brazil", 10, 2); // Spain-Brazil: 12
+        board.updateScore("Germany", "France", 2, 2);  // Germany-France: 4
+        board.updateScore("Uruguay", "Italy", 6, 6);  // Uruguay-Italy: 12
+        board.updateScore("Argentina", "Australia", 3, 1);  // Argentina-Australia: 4
 
         // When
         final List<MatchRecord> summary = board.getSummary();
@@ -117,7 +116,7 @@ class FootballScoreBoardTest {
         );
 
         // Then
-        assertTrue(ex.getMessage().contains("Match already exists"));
+        assertTrue(ex.getMessage().contains("At least one of the teams is already playing a match"));
     }
 
     @Test
@@ -137,7 +136,7 @@ class FootballScoreBoardTest {
     void givenNonExistingMatch_whenUpdateScore_thenThrowException() {
         // When
         final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.updateScore("non-existent-id", 1, 1)
+                board.updateScore("dummyTeam", "dummierTeam", 1, 1)
         );
 
         // Then
@@ -149,7 +148,7 @@ class FootballScoreBoardTest {
     void givenNonExistingMatch_whenFinishGame_thenThrowException() {
         // When
         final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.finishGame("non-existent-id")
+                board.finishGame("dummyTeam", "dummierTeam")
         );
 
         // Then
@@ -160,11 +159,11 @@ class FootballScoreBoardTest {
     @DisplayName("Should throw when score is negative")
     void givenNegativeScore_whenUpdateScore_thenThrowException() {
         // Given
-        String id = board.startGame("Germany", "France");
+        board.startGame("Germany", "France");
 
         // When
         final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.updateScore(id, -1, 2)
+                board.updateScore("Germany", "France", -1, 2)
         );
 
         // Then
@@ -211,7 +210,7 @@ class FootballScoreBoardTest {
         // which is not suitable for production logic.
 
         // Given
-        String matchId = board.startGame("TeamA", "TeamB");
+        board.startGame("TeamA", "TeamB");
         int threads = 10;
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch latch = new CountDownLatch(threads);
@@ -223,7 +222,7 @@ class FootballScoreBoardTest {
             int finalI = i;
             executor.execute(() -> {
                 try {
-                    board.updateScore(matchId, finalI, finalI);
+                    board.updateScore("TeamA", "TeamB", finalI, finalI);
                     successCount.incrementAndGet();
                 } catch (OptimisticLockException e) {
                     optimisticExceptions.incrementAndGet();

@@ -2,34 +2,48 @@ package pl.jakubtworek;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 public class FootballScoreBoard {
-    private final Map<String, Match> matches = new ConcurrentHashMap<>();
+    private final Map<MatchKey, Match> matches = new ConcurrentHashMap<>();
+    private final AtomicReference<List<MatchRecord>> cachedSummary = new AtomicReference<>();
+    private final Map<String, Boolean> teamsInUse = new ConcurrentHashMap<>();
 
-    public String startGame(String homeTeam, String awayTeam) {
+    public void startGame(String homeTeam, String awayTeam) {
         requireNonEmpty(homeTeam, "homeTeam");
         requireNonEmpty(awayTeam, "awayTeam");
         validateTeamName(homeTeam, "homeTeam");
         validateTeamName(awayTeam, "awayTeam");
 
-        if (homeTeam.equalsIgnoreCase(awayTeam)) {
+        String home = homeTeam.toLowerCase();
+        String away = awayTeam.toLowerCase();
+
+        if (home.equals(away)) {
             throw new IllegalArgumentException("Team cannot play against itself: " + homeTeam);
         }
 
-        boolean duplicateExists = matches.values().stream()
-                .anyMatch(m -> m.getHomeTeam().equalsIgnoreCase(homeTeam) && m.getAwayTeam().equalsIgnoreCase(awayTeam));
-        if (duplicateExists) {
-            throw new IllegalArgumentException("Match already exists: " + homeTeam + " vs " + awayTeam);
+        if (teamsInUse.putIfAbsent(home, true) != null || teamsInUse.putIfAbsent(away, true) != null) {
+            teamsInUse.remove(home);
+            teamsInUse.remove(away);
+            throw new IllegalArgumentException("At least one of the teams is already playing a match");
         }
 
-        String uuid = UUID.randomUUID().toString();
-        Match match = new Match(uuid, homeTeam, awayTeam);
-        matches.put(uuid, match);
-        return uuid;
+        MatchKey key = new MatchKey(homeTeam, awayTeam);
+        Match match = new Match(homeTeam, awayTeam);
+
+        Match existing = matches.putIfAbsent(key, match);
+        if (existing != null) {
+            teamsInUse.remove(homeTeam.toLowerCase());
+            teamsInUse.remove(awayTeam.toLowerCase());
+            throw new IllegalArgumentException("Match already exists: " + homeTeam + " vs " + awayTeam);
+        }
+        invalidateCache();
     }
 
-    public void updateScore(String uuid, int homeScore, int awayScore) {
-        Match current = matches.get(uuid);
+    public void updateScore(String homeTeam, String awayTeam, int homeScore, int awayScore) {
+        MatchKey key = new MatchKey(homeTeam, awayTeam);
+        Match current = matches.get(key);
         if (current == null) throw new IllegalArgumentException("Match not found");
 
         if (homeScore < 0 || awayScore < 0) {
@@ -41,7 +55,7 @@ public class FootballScoreBoard {
         }
 
         Match updated = new Match(
-                current.getUuid(),
+                current.getKey(),
                 current.getHomeTeam(),
                 current.getAwayTeam(),
                 homeScore,
@@ -49,26 +63,39 @@ public class FootballScoreBoard {
                 current.getAddedAt()
         );
 
-        boolean replaced = matches.replace(uuid, current, updated);
+        boolean replaced = matches.replace(key, current, updated);
         if (!replaced) {
             throw new OptimisticLockException("Match was modified concurrently. Please retry.");
         }
+        invalidateCache();
     }
 
-    public void finishGame(String uuid) {
-        if (matches.remove(uuid) == null) {
-            throw new IllegalArgumentException("Match not found: " + uuid);
+    public void finishGame(String homeTeam, String awayTeam) {
+        MatchKey key = new MatchKey(homeTeam, awayTeam);
+        if (matches.remove(key) == null) {
+            throw new IllegalArgumentException("Match not found");
         }
+        teamsInUse.remove(homeTeam.toLowerCase());
+        teamsInUse.remove(awayTeam.toLowerCase());
+        invalidateCache();
     }
 
     public List<MatchRecord> getSummary() {
-        final List<Match> snapshot = new ArrayList<>(matches.values());
-        return snapshot.stream()
-                .sorted(Comparator
-                        .comparingInt(Match::getTotalScore)
-                        .thenComparing(Match::getAddedAt).reversed())
-                .map(Match::toRecord)
-                .toList();
+        return cachedSummary.updateAndGet(existing -> {
+            if (existing != null) return existing;
+
+            List<Match> snapshot = new ArrayList<>(matches.values());
+            return snapshot.stream()
+                    .sorted(Comparator
+                            .comparingInt(Match::getTotalScore)
+                            .thenComparing(Match::getAddedAt).reversed())
+                    .map(Match::toRecord)
+                    .toList();
+        });
+    }
+
+    private void invalidateCache() {
+        cachedSummary.set(null);
     }
 
     private void requireNonEmpty(String value, String field) {
@@ -78,7 +105,7 @@ public class FootballScoreBoard {
     }
 
     private void validateTeamName(String name, String field) {
-        if (!name.matches("[A-Za-z0-9 ]+")) {
+        if (!Pattern.matches("[A-Za-z0-9 ]+", name)) {
             throw new IllegalArgumentException("Field '" + field + "' must contain only letters, digits or spaces");
         }
     }
