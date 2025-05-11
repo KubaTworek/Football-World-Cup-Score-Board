@@ -1,5 +1,6 @@
 package pl.jakubtworek;
 
+import java.util.Comparator;
 import java.util.Objects;
 
 public class Match {
@@ -12,16 +13,10 @@ public class Match {
     private final long addedAt;
 
     public Match(String homeTeam, String awayTeam) {
-        this.key = new MatchKey(homeTeam, awayTeam);
-        this.homeTeam = homeTeam;
-        this.awayTeam = awayTeam;
-        this.homeScore = 0;
-        this.awayScore = 0;
-        this.totalScore = 0;
-        this.addedAt = System.nanoTime();
+        this(MatchKey.of(homeTeam, awayTeam), homeTeam, awayTeam, 0, 0, System.nanoTime());
     }
 
-    public Match(MatchKey key, String homeTeam, String awayTeam, int homeScore, int awayScore, long addedAt) {
+    private Match(MatchKey key, String homeTeam, String awayTeam, int homeScore, int awayScore, long addedAt) {
         this.key = key;
         this.homeTeam = homeTeam;
         this.awayTeam = awayTeam;
@@ -31,32 +26,45 @@ public class Match {
         this.addedAt = addedAt;
     }
 
+    public Match withUpdatedScore(int homeScore, int awayScore) {
+        if (this.homeScore == homeScore && this.awayScore == awayScore) {
+            throw new IllegalArgumentException("New score is identical to the current score");
+        }
+
+        return new Match(key, homeTeam, awayTeam, homeScore, awayScore, addedAt);
+    }
+
     public MatchKey getKey() {
         return key;
     }
-    public String getHomeTeam() { return homeTeam; }
-    public String getAwayTeam() { return awayTeam; }
-    public int getHomeScore() { return homeScore; }
-    public int getAwayScore() { return awayScore; }
-    public int getTotalScore() {
-        return totalScore;
-    }
-    public long getAddedAt() { return addedAt; }
 
     public MatchRecord toRecord() {
         return new MatchRecord(homeTeam, awayTeam, homeScore, awayScore);
     }
 
+    public static final Comparator<Match> SORT_BY_SCORE_THEN_TIME_DESC =
+            Comparator.comparingInt(Match::getTotalScore)
+                    .thenComparingLong(Match::getAddedAt)
+                    .reversed();
+
+    private int getTotalScore() {
+        return totalScore;
+    }
+
+    private long getAddedAt() { return addedAt; }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof Match other)) return false;
-        return key.equals(other.key);
+        return homeScore == other.homeScore &&
+                awayScore == other.awayScore &&
+                key.equals(other.key);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(key);
+        return Objects.hash(key, homeScore, awayScore, addedAt);
     }
 
     @Override

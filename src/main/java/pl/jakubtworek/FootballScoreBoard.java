@@ -1,101 +1,68 @@
 package pl.jakubtworek;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 public class FootballScoreBoard {
-    private final Map<MatchKey, Match> matches = new ConcurrentHashMap<>();
-    private final AtomicReference<List<MatchRecord>> cachedSummary = new AtomicReference<>();
-    private final Map<String, Boolean> teamsInUse = new ConcurrentHashMap<>();
+    private final AtomicReference<List<MatchRecord>> cachedSummary;
+    private final MatchRepository repository;
+
+    public FootballScoreBoard(MatchRepository matchRepository) {
+        this.cachedSummary = new AtomicReference<>();
+        this.repository = matchRepository;
+    }
 
     public void startGame(String homeTeam, String awayTeam) {
-        requireNonEmpty(homeTeam, "homeTeam");
-        requireNonEmpty(awayTeam, "awayTeam");
-        validateTeamName(homeTeam, "homeTeam");
-        validateTeamName(awayTeam, "awayTeam");
-
-        String home = homeTeam.toLowerCase();
-        String away = awayTeam.toLowerCase();
-
-        if (home.equals(away)) {
-            throw new IllegalArgumentException("Team cannot play against itself: " + homeTeam);
-        }
-
-        if (teamsInUse.putIfAbsent(home, true) != null || teamsInUse.putIfAbsent(away, true) != null) {
-            teamsInUse.remove(home);
-            teamsInUse.remove(away);
-            throw new IllegalArgumentException("At least one of the teams is already playing a match");
-        }
-
-        MatchKey key = new MatchKey(homeTeam, awayTeam);
-        Match match = new Match(homeTeam, awayTeam);
-
-        Match existing = matches.putIfAbsent(key, match);
-        if (existing != null) {
-            teamsInUse.remove(homeTeam.toLowerCase());
-            teamsInUse.remove(awayTeam.toLowerCase());
-            throw new IllegalArgumentException("Match already exists: " + homeTeam + " vs " + awayTeam);
-        }
+        validateTeams(homeTeam, awayTeam);
+        repository.save(new Match(homeTeam, awayTeam));
         invalidateCache();
     }
 
     public void updateScore(String homeTeam, String awayTeam, int homeScore, int awayScore) {
-        MatchKey key = new MatchKey(homeTeam, awayTeam);
-        Match current = matches.get(key);
-        if (current == null) throw new IllegalArgumentException("Match not found");
+        validateScores(homeScore, awayScore);
 
-        if (homeScore < 0 || awayScore < 0) {
-            throw new IllegalArgumentException("Score cannot be negative");
-        }
-
-        if (current.getHomeScore() == homeScore && current.getAwayScore() == awayScore) {
-            return;
-        }
-
-        Match updated = new Match(
-                current.getKey(),
-                current.getHomeTeam(),
-                current.getAwayTeam(),
-                homeScore,
-                awayScore,
-                current.getAddedAt()
-        );
-
-        boolean replaced = matches.replace(key, current, updated);
-        if (!replaced) {
-            throw new OptimisticLockException("Match was modified concurrently. Please retry.");
-        }
-        invalidateCache();
+        repository.findBy(homeTeam, awayTeam).ifPresentOrElse(current -> {
+            final Match updated = current.withUpdatedScore(homeScore, awayScore);
+            repository.update(current, updated);
+            invalidateCache();
+        }, () -> {
+            throw new IllegalArgumentException("Match not found");
+        });
     }
 
     public void finishGame(String homeTeam, String awayTeam) {
-        MatchKey key = new MatchKey(homeTeam, awayTeam);
-        if (matches.remove(key) == null) {
+        if (!repository.removeBy(homeTeam, awayTeam)) {
             throw new IllegalArgumentException("Match not found");
         }
-        teamsInUse.remove(homeTeam.toLowerCase());
-        teamsInUse.remove(awayTeam.toLowerCase());
         invalidateCache();
     }
 
     public List<MatchRecord> getSummary() {
-        return cachedSummary.updateAndGet(existing -> {
-            if (existing != null) return existing;
-
-            List<Match> snapshot = new ArrayList<>(matches.values());
-            return snapshot.stream()
-                    .sorted(Comparator
-                            .comparingInt(Match::getTotalScore)
-                            .thenComparing(Match::getAddedAt).reversed())
-                    .map(Match::toRecord)
-                    .toList();
-        });
+        return cachedSummary.updateAndGet(existing ->
+                existing != null ? existing : repository.findAllByOrderByTotalScoreDescAddedAtDesc()
+        );
     }
 
     private void invalidateCache() {
         cachedSummary.set(null);
+    }
+
+    private void validateScores(int homeScore, int awayScore) {
+        if (homeScore < 0 || awayScore < 0) {
+            throw new IllegalArgumentException("Score cannot be negative");
+        }
+    }
+
+    private void validateTeams(String home, String away) {
+        requireNonEmpty(home, "homeTeam");
+        requireNonEmpty(away, "awayTeam");
+        validateTeamName(home, "homeTeam");
+        validateTeamName(away, "awayTeam");
+
+        if (home.equalsIgnoreCase(away)) {
+            throw new IllegalArgumentException("Team cannot play against itself");
+        }
     }
 
     private void requireNonEmpty(String value, String field) {

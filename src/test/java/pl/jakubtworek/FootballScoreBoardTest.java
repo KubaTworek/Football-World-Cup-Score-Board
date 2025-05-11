@@ -1,245 +1,144 @@
 package pl.jakubtworek;
 
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Optional;
 
+import static java.util.Collections.emptyList;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
-@DisplayName("FootballScoreBoard basic functionality")
+@DisplayName("FootballScoreBoard unit tests")
 class FootballScoreBoardTest {
 
+    private MatchRepository repository;
     private FootballScoreBoard board;
 
     @BeforeEach
-    void setUp() {
-        board = new FootballScoreBoard();
+    void setup() {
+        repository = mock(MatchRepository.class);
+        board = new FootballScoreBoard(repository);
     }
 
     @Test
-    @DisplayName("Should start a new game and add match to the list")
-    void givenTeams_whenStartGame_thenMatchIsAddedWithZeroScore() {
-        // Given
-        final String home = "Spain";
-        final String away = "Brazil";
-
+    @DisplayName("Should delegate match saving to repository on game start")
+    void shouldSaveMatchOnStartGame() {
         // When
-        board.startGame(home, away);
-        final MatchRecord match = board.getSummary().getFirst();
-
-        // Then
-        assertAll(
-                () -> assertEquals(home, match.homeTeam()),
-                () -> assertEquals(away, match.awayTeam()),
-                () -> assertEquals(0, match.homeScore()),
-                () -> assertEquals(0, match.awayScore())
-        );
-    }
-
-    @Test
-    @DisplayName("Should update the score of an existing match")
-    void givenExistingMatch_whenUpdateScore_thenScoreIsUpdated() {
-        // Given
-        board.startGame("Germany", "France");
-
-        // When
-        board.updateScore("Germany", "France", 2, 3);
-        final MatchRecord match = board.getSummary().getFirst();
-
-        // Then
-        assertAll(
-                () -> assertEquals(2, match.homeScore()),
-                () -> assertEquals(3, match.awayScore())
-        );
-    }
-
-    @Test
-    @DisplayName("Should remove a finished game from the scoreboard")
-    void givenMatchStarted_whenFinishGame_thenMatchIsRemoved() {
-        // Given
-        board.startGame("Mexico", "USA");
-
-        // When
-        board.finishGame("Mexico", "USA");
-
-        // Then
-        assertTrue(board.getSummary().isEmpty());
-    }
-
-    @Test
-    @DisplayName("Should return summary sorted by total score and then by insertion order")
-    void givenMultipleMatches_whenGetSummary_thenSortedCorrectly() {
-        // Given
-        board.startGame("Mexico", "Canada");      // 0
-        board.startGame("Spain", "Brazil");       // 1
-        board.startGame("Germany", "France");     // 2
-        board.startGame("Uruguay", "Italy");      // 3
-        board.startGame("Argentina", "Australia"); // 4
-
-        board.updateScore("Mexico", "Canada", 0, 5);  // Mexico-Canada: 5
-        board.updateScore("Spain", "Brazil", 10, 2); // Spain-Brazil: 12
-        board.updateScore("Germany", "France", 2, 2);  // Germany-France: 4
-        board.updateScore("Uruguay", "Italy", 6, 6);  // Uruguay-Italy: 12
-        board.updateScore("Argentina", "Australia", 3, 1);  // Argentina-Australia: 4
-
-        // When
-        final List<MatchRecord> summary = board.getSummary();
-
-        // Then
-        assertAll(
-                () -> assertEquals("Uruguay", summary.get(0).homeTeam()),     // 12 (added later than Spain)
-                () -> assertEquals("Spain", summary.get(1).homeTeam()),       // 12
-                () -> assertEquals("Mexico", summary.get(2).homeTeam()),      // 5
-                () -> assertEquals("Argentina", summary.get(3).homeTeam()),   // 4
-                () -> assertEquals("Germany", summary.get(4).homeTeam())      // 4
-        );
-    }
-
-    @Test
-    @DisplayName("Should not allow duplicate matches regardless of case")
-    void givenDuplicateMatch_whenStartGame_thenThrowException() {
-        // Given
-        board.startGame("Spain", "Brazil");
-
-        // When
-        final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.startGame("spain", "BRAZIL")
-        );
-
-        // Then
-        assertTrue(ex.getMessage().contains("At least one of the teams is already playing a match"));
-    }
-
-    @Test
-    @DisplayName("Should throw when starting game where team plays against itself")
-    void givenSameTeamForHomeAndAway_whenStartGame_thenThrowException() {
-        // When
-        final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.startGame("Spain", "spain")
-        );
-
-        // Then
-        assertTrue(ex.getMessage().contains("cannot play against itself"));
-    }
-
-    @Test
-    @DisplayName("Should throw when updating score of non-existent match")
-    void givenNonExistingMatch_whenUpdateScore_thenThrowException() {
-        // When
-        final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.updateScore("dummyTeam", "dummierTeam", 1, 1)
-        );
-
-        // Then
-        assertTrue(ex.getMessage().contains("Match not found"));
-    }
-
-    @Test
-    @DisplayName("Should throw when finishing non-existent match")
-    void givenNonExistingMatch_whenFinishGame_thenThrowException() {
-        // When
-        final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.finishGame("dummyTeam", "dummierTeam")
-        );
-
-        // Then
-        assertTrue(ex.getMessage().contains("Match not found"));
-    }
-
-    @Test
-    @DisplayName("Should throw when score is negative")
-    void givenNegativeScore_whenUpdateScore_thenThrowException() {
-        // Given
-        board.startGame("Germany", "France");
-
-        // When
-        final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.updateScore("Germany", "France", -1, 2)
-        );
-
-        // Then
-        assertTrue(ex.getMessage().contains("cannot be negative"));
-    }
-
-    @Test
-    @DisplayName("Should throw when team name contains invalid characters")
-    void givenInvalidTeamName_whenStartGame_thenThrow() {
-        // When
-        final var ex = assertThrows(IllegalArgumentException.class, () ->
-                board.startGame("Team!", "Rival$")
-        );
-
-        // Then
-        assertTrue(ex.getMessage().contains("must contain only"));
-    }
-
-    @Test
-    @DisplayName("Should allow team name with letters, digits and spaces")
-    void givenValidTeamName_whenStartGame_thenSuccess() {
-        // When & Then
-        assertDoesNotThrow(() ->
-                board.startGame("Real Madrid 123", "Team42")
-        );
-    }
-
-    @Test
-    @DisplayName("Should return empty summary when no matches started")
-    void givenNoMatches_whenGetSummary_thenReturnEmptyList() {
-        // When
-        final List<MatchRecord> summary = board.getSummary();
-
-        // Then
-        assertTrue(summary.isEmpty());
-    }
-
-    @Disabled("Disabled: updateScore() executes too fast to reliably trigger optimistic locking conflicts in concurrent scenarios.")
-    @Test
-    @DisplayName("Should handle concurrent updates safely with optimistic locking")
-    void givenConcurrentUpdates_whenUpdateScore_thenOnlyOneSucceedsAndRestFail() throws InterruptedException {
-        // This test is intentionally disabled because it relies on timing-sensitive behavior.
-        // To make it pass consistently, updateScore() would need to include a delay,
-        // which is not suitable for production logic.
-
-        // Given
         board.startGame("TeamA", "TeamB");
-        int threads = 10;
-        ExecutorService executor = Executors.newFixedThreadPool(threads);
-        CountDownLatch latch = new CountDownLatch(threads);
-        AtomicInteger optimisticExceptions = new AtomicInteger();
-        AtomicInteger successCount = new AtomicInteger();
-
-        // When
-        for (int i = 1; i < threads; i++) {
-            int finalI = i;
-            executor.execute(() -> {
-                try {
-                    board.updateScore("TeamA", "TeamB", finalI, finalI);
-                    successCount.incrementAndGet();
-                } catch (OptimisticLockException e) {
-                    optimisticExceptions.incrementAndGet();
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
-
-        latch.await(5, TimeUnit.SECONDS);
-        executor.shutdown();
 
         // Then
-        MatchRecord match = board.getSummary().getFirst();
-        assertTrue(match.homeScore() >= 0 && match.homeScore() < threads);
-        assertEquals(match.homeScore(), match.awayScore());
-        assertEquals(1, successCount.get());
-        assertTrue(optimisticExceptions.get() >= 1);
+        verify(repository).save(any(Match.class));
+    }
+
+    @ParameterizedTest(name = "[{index}] homeTeam=''{0}'' awayTeam=''{1}'' → error: {2}")
+    @DisplayName("Should throw on invalid or empty team names")
+    @CsvSource(delimiter = '|', value = {
+            "Team!|Rival|Field 'homeTeam' must contain only letters, digits or spaces",
+            "Rival|Rival$|Field 'awayTeam' must contain only letters, digits or spaces",
+            "|Opponent|Field 'homeTeam' cannot be empty",
+            "Opponent| |Field 'awayTeam' cannot be empty",
+            "Same|Same|Team cannot play against itself"
+    })
+    void shouldThrowIfTeamNameInvalid(String homeTeam, String awayTeam, String expectedMessage) {
+        // When
+        final var ex = assertThrows(IllegalArgumentException.class,
+                () -> board.startGame(homeTeam, awayTeam));
+
+        // Then
+        assertEquals(expectedMessage, ex.getMessage());
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("Should update score for an existing match")
+    void shouldUpdateScoreIfMatchExists() {
+        // Given
+        final var match = new Match("A", "B");
+        when(repository.findBy("A", "B")).thenReturn(Optional.of(match));
+
+        // When
+        board.updateScore("A", "B", 1, 1);
+
+        // Then
+        verify(repository).update(eq(match), eq(match.withUpdatedScore(1, 1)));
+    }
+
+    @Test
+    @DisplayName("Should throw if updating score of a non-existent match")
+    void shouldThrowIfUpdatingMissingMatch() {
+        // Given
+        when(repository.findBy("X", "Y")).thenReturn(Optional.empty());
+
+        // When
+        final var ex = assertThrows(IllegalArgumentException.class,
+                () -> board.updateScore("X", "Y", 2, 2));
+
+        // Then
+        assertEquals("Match not found", ex.getMessage());
+        verify(repository, never()).update(any(), any());
+    }
+
+    @ParameterizedTest
+    @DisplayName("Should throw if home or away score is negative")
+    @CsvSource({
+            "-1, 0",
+            "0, -1",
+            "-3, -2"
+    })
+    void shouldThrowIfScoreIsNegative(int homeScore, int awayScore) {
+        final var ex = assertThrows(IllegalArgumentException.class,
+                () -> board.updateScore("X", "Y", homeScore, awayScore));
+
+        assertEquals("Score cannot be negative", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("Should call removeBy on repository when finishing a match")
+    void shouldFinishGameCorrectly() {
+        // Given
+        when(repository.removeBy("A", "B")).thenReturn(true);
+
+        // When
+        board.finishGame("A", "B");
+
+        // Then
+        verify(repository).removeBy("A", "B");
+    }
+
+    @Test
+    @DisplayName("Should throw if trying to finish a non-existent match")
+    void shouldThrowWhenFinishingNonexistentGame() {
+        // Given
+        when(repository.removeBy("A", "B")).thenReturn(false);
+
+        // When
+        final var ex = assertThrows(IllegalArgumentException.class,
+                () -> board.finishGame("A", "B"));
+
+        // Then
+        assertEquals("Match not found", ex.getMessage());
+    }
+
+
+    @Test
+    @DisplayName("Should cache and return summary once generated")
+    void shouldReturnCachedSummary() {
+        // Given
+        when(repository.findAllByOrderByTotalScoreDescAddedAtDesc()).thenReturn(emptyList());
+
+        // When
+        final List<MatchRecord> firstCall = board.getSummary();
+        final List<MatchRecord> secondCall = board.getSummary();
+
+        // Then
+        assertAll(
+                () -> verify(repository, times(1)).findAllByOrderByTotalScoreDescAddedAtDesc(),
+                () -> assertSame(firstCall, secondCall)
+        );
     }
 }
