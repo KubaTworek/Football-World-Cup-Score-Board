@@ -3,7 +3,7 @@ package pl.jakubtworek;
 import java.util.Comparator;
 import java.util.Objects;
 
-public class Match {
+class Match {
     private final MatchKey key;
     private final String homeTeam;
     private final String awayTeam;
@@ -12,7 +12,7 @@ public class Match {
     private final int totalScore;
     private final long addedAt;
 
-    public Match(String homeTeam, String awayTeam) {
+    Match(String homeTeam, String awayTeam) {
         this(MatchKey.of(homeTeam, awayTeam), homeTeam, awayTeam, 0, 0, System.nanoTime());
     }
 
@@ -26,7 +26,7 @@ public class Match {
         this.addedAt = addedAt;
     }
 
-    public Match withUpdatedScore(int homeScore, int awayScore) {
+    Match withUpdatedScore(int homeScore, int awayScore) {
         if (this.homeScore == homeScore && this.awayScore == awayScore) {
             throw new IllegalArgumentException("New score is identical to the current score");
         }
@@ -34,15 +34,15 @@ public class Match {
         return new Match(key, homeTeam, awayTeam, homeScore, awayScore, addedAt);
     }
 
-    public MatchKey getKey() {
+    MatchKey getKey() {
         return key;
     }
 
-    public MatchRecord toRecord() {
+    MatchRecord toRecord() {
         return new MatchRecord(homeTeam, awayTeam, homeScore, awayScore);
     }
 
-    public static final Comparator<Match> SORT_BY_SCORE_THEN_TIME_DESC =
+    static final Comparator<Match> SORT_BY_SCORE_THEN_TIME_DESC =
             Comparator.comparingInt(Match::getTotalScore)
                     .thenComparingLong(Match::getAddedAt)
                     .reversed();
@@ -64,7 +64,7 @@ public class Match {
 
     @Override
     public int hashCode() {
-        return Objects.hash(key, homeScore, awayScore, addedAt);
+        return Objects.hash(key, homeScore, awayScore);
     }
 
     @Override

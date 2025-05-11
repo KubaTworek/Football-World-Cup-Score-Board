@@ -15,6 +15,7 @@ public class FootballScoreBoard {
 
     public void startGame(String homeTeam, String awayTeam) {
         validateTeams(homeTeam, awayTeam);
+        System.out.printf("Starting game: %s vs %s%n", homeTeam, awayTeam);
         repository.save(new Match(homeTeam, awayTeam));
         invalidateCache();
     }
@@ -23,16 +24,20 @@ public class FootballScoreBoard {
         validateScores(homeScore, awayScore);
 
         repository.findBy(homeTeam, awayTeam).ifPresentOrElse(current -> {
+            System.out.printf("Updating score for: %s vs %s → %d:%d%n", homeTeam, awayTeam, homeScore, awayScore);
             final Match updated = current.withUpdatedScore(homeScore, awayScore);
             repository.update(current, updated);
             invalidateCache();
         }, () -> {
+            System.err.printf("Update failed: match not found for %s vs %s%n", homeTeam, awayTeam);
             throw new IllegalArgumentException("Match not found");
         });
     }
 
     public void finishGame(String homeTeam, String awayTeam) {
+        System.out.printf("Finishing game: %s vs %s%n", homeTeam, awayTeam);
         if (!repository.removeBy(homeTeam, awayTeam)) {
+            System.err.printf("Finish failed: match not found for %s vs %s%n", homeTeam, awayTeam);
             throw new IllegalArgumentException("Match not found");
         }
         invalidateCache();
@@ -45,6 +50,7 @@ public class FootballScoreBoard {
     }
 
     private void invalidateCache() {
+        System.out.println("Invalidating summary cache");
         cachedSummary.set(null);
     }
 
